@@ -1,0 +1,389 @@
+---
+title: "Mini Project 2"
+author: "Anurag Nepal"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    theme: flatly
+  word_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(corrplot)
+library(gridExtra)
+library(naniar)
+library(dplyr)
+
+set.seed(748)
+```
+
+## Part 1 - Exploratory Data Analysis (EDA)
+
+
+```{r load_data}
+raw_housing_df <- read.csv("housing_data.csv")
+
+raw_housing_df$renovated <- as.factor(raw_housing_df$renovated)
+
+split_indices <- createDataPartition(raw_housing_df$price, p = 0.8, list = FALSE)
+housing_train <- raw_housing_df[split_indices, ]
+housing_test <- raw_housing_df[-split_indices, ]
+```
+The dataset is being split into training and testing sets. This is done early so information from the test set does not accidentally leak into the exploratory analysis or the pre-processing steps.
+
+### 1.1 Dataset Structure & Missing Values
+
+```{r eda_structure}
+summary(housing_train)
+
+na_summary <- data.frame(Missing_Count = colSums(is.na(housing_train)))
+knitr::kable(na_summary, caption = "Missing Values by Feature")
+```
+```{r mcar-test}
+mcar_result <- mcar_test(raw_housing_df)
+print(mcar_result)
+```
+
+
+Missing values are present in a few of the predictors (`size_sqft`,`age` and `prize_per_sqft`). If every row with a missing value is dropped, a massive chunk of the training data will be lost. So, these missing values are going to be imputed later.
+
+### 1.2 Distributions, Skewness, and Outliers
+
+```{r eda_distributions, fig.width=10, fig.height=8}
+plot_price_dist <- ggplot(housing_train, aes(x = price)) + 
+  geom_histogram(bins = 30, fill = "steelblue", color = "black") + 
+  theme_minimal() + 
+  labs(title = "Price Distribution (Skewed)", x = "Price", y = "Count")
+
+plot_crime_dist <- ggplot(housing_train, aes(x = crime_rate)) + 
+  geom_histogram(bins = 30, fill = "coral", color = "black") + 
+  theme_minimal() + 
+  labs(title = "Crime Rate Distribution", x = "Crime Rate", y = "Count")
+
+plot_dist_outliers <- ggplot(housing_train, aes(y = distance_city)) + 
+  geom_boxplot(fill = "lightgreen") + 
+  theme_minimal() + 
+  labs(title = "Distance to City Outliers", y = "Distance")
+
+grid.arrange(plot_price_dist, plot_crime_dist, plot_dist_outliers, ncol=2)
+```
+
+* Both `price` and `crime_rate` are heavily right-skewed. Most homes are cheaper and have low crime rates, but a long tail of extreme values exists. A log transformation will help smooth this out.
+
+* The boxplot shows several clear outliers for `distance_city`. These extreme points can disrupt standard linear regression models.
+
+### 1.3 Correlation & Leakage Detection
+
+The relationships between the numeric variables are checked.
+
+```{r eda_correlation, fig.width=8, fig.height=6}
+numeric_subset <- housing_train %>% dplyr::select_if(is.numeric)
+correlation_matrix <- cor(numeric_subset, use = "complete.obs")
+
+corrplot(correlation_matrix, method = "color", type = "upper", 
+         addCoef.col = "black", tl.col = "black", diag = FALSE)
+```
+
+
+* **Leakage:** A near perfect relationship is seen between `price_per_sqft` with `price`. This is happening because price per square foot is calculated directly from the price and the size. It must be either be dropped or the other two must be dropped.
+
+* **Multicollinearity:** A strong correlation exists between `size_sqft` and `bedrooms`. This is understandable as the number of bedrooms increases, it should be built on more area.
+
+### Preprocessing Plan
+1. **Remove leakage:** The `price_per_sqft` variable will be dropped.
+2. **Handle NAs:** Missing numbers will be imputed with the median, and missing categories will be imputed with the mode. Missingness indicators will also be added.
+3. **Handle outliers:** Instead of deleting outliers, they will be capped at the 5th and 95th percentiles.
+4. **Transform and scale:** The predictors will need to be standardized so Ridge and Lasso work properly, and the skewed variables (`price` and `crime_rate`) will be log-transformed.
+
+---
+
+## Part 2 - Experimental Pipelines
+
+```{r cv_setup}
+# Cross-Validation Configuration
+cv_control <- trainControl(method = "cv", number = 10)
+
+# Summary function for Log-transformed models (Back-transforms to original scale)
+exp_summary <- function(data, lev = NULL, model = NULL) {
+  obs <- exp(data$obs)
+  pred <- exp(data$pred)
+  c(RMSE = RMSE(pred, obs), Rsquared = R2(pred, obs), MAE = MAE(pred, obs))
+}
+
+cv_control_log <- trainControl(method = "cv", number = 10, summaryFunction = exp_summary)
+
+# Storage for results
+performance_metrics_storage <- list()
+test_metrics_storage <- list()
+```
+
+
+```{r cv_setup_test}
+# Extract CV performance from caret object
+extract_performance <- function(model_obj, pipeline_label, model_type) {
+  best_row <- model_obj$results[which.min(model_obj$results$RMSE), ]
+  data.frame(
+    Pipeline = pipeline_label,
+    Model = model_type,
+    RMSE = paste0(round(best_row$RMSE, 2), " (± ", round(best_row$RMSESD, 2), ")"), 
+    MAE = paste0(round(best_row$MAE, 2), " (± ", round(best_row$MAESD, 2), ")"),
+    RMSE_Num = best_row$RMSE
+  )
+}
+
+# Calculate performance on unseen test set
+get_test_perf <- function(model_obj, test_data, label, model_type, is_log = FALSE) {
+  preds <- predict(model_obj, newdata = test_data)
+  obs <- test_data$price
+  if(is_log) preds <- exp(preds)
+  
+  data.frame(
+    Pipeline = label,
+    Model = model_type,
+    Test_RMSE = round(RMSE(preds, obs), 2),
+    Test_MAE = round(MAE(preds, obs), 2)
+  )
+}
+
+# Unified Imputation Function (Ensures Test uses Training stats)
+impute_data <- function(target_df, reference_df) {
+  res_df <- target_df
+  for(nm in names(res_df)) {
+    if(is.numeric(res_df[[nm]])) {
+      res_df[[nm]][is.na(res_df[[nm]])] <- median(reference_df[[nm]], na.rm = TRUE)
+    } else {
+      mode_val <- names(sort(table(reference_df[[nm]]), decreasing = TRUE))[1]
+      res_df[[nm]][is.na(res_df[[nm]])] <- mode_val
+    }
+  }
+  return(res_df)
+}
+```
+
+### Pipeline 0: Baseline
+The leakage variable is dropped, and any rows with NA values are removed. No scaling or transformations are applied.
+
+```{r pipeline_0}
+housing_train_clean <- housing_train %>% dplyr::select(-price_per_sqft)
+housing_test_clean  <- housing_test %>% dplyr::select(-price_per_sqft)
+
+train_p0 <- na.omit(housing_train_clean)
+test_p0  <- na.omit(housing_test_clean)
+
+# Train
+fit_p0_ols   <- train(price ~ ., data = train_p0, method = "lm", trControl = cv_control)
+fit_p0_ridge <- train(price ~ ., data = train_p0, method = "glmnet", 
+                      tuneGrid = expand.grid(alpha = 0, lambda = seq(0.1, 10, length=5)),
+                      trControl = cv_control)
+
+performance_metrics_storage[[1]] <- extract_performance(fit_p0_ols, "P0_Baseline", "OLS")
+performance_metrics_storage[[2]] <- extract_performance(fit_p0_ridge, "P0_Baseline", "Ridge")
+test_metrics_storage[[1]] <- get_test_perf(fit_p0_ols, test_p0, "P0_Baseline", "OLS")
+test_metrics_storage[[2]] <- get_test_perf(fit_p0_ridge, test_p0, "P0_Baseline", "Ridge")
+```
+
+### Pipeline 1: Imputation
+All rows are kept by filling in missing values with the median. Scaling is still not applied.
+
+```{r pipeline_1}
+train_p1 <- impute_data(housing_train_clean, housing_train_clean)
+test_p1  <- impute_data(housing_test_clean, housing_train_clean)
+
+# Train
+fit_p1_ols   <- train(price ~ ., data = train_p1, method = "lm", trControl = cv_control)
+fit_p1_ridge <- train(price ~ ., data = train_p1, method = "glmnet", 
+                      tuneGrid = expand.grid(alpha = 0, lambda = seq(0.1, 10, length=5)),
+                      trControl = cv_control)
+
+# Evaluate
+performance_metrics_storage[[3]] <- extract_performance(fit_p1_ols, "P1_Imputed", "OLS")
+performance_metrics_storage[[4]] <- extract_performance(fit_p1_ridge, "P1_Imputed", "Ridge")
+test_metrics_storage[[3]] <- get_test_perf(fit_p1_ols, test_p1, "P1_Imputed", "OLS")
+test_metrics_storage[[4]] <- get_test_perf(fit_p1_ridge, test_p1, "P1_Imputed", "Ridge")
+```
+
+
+### Pipeline 2: Imputation + Missing Indicators
+This is the same as Pipeline 1, but a binary column is added to flag where the missing values originally were before they were imputed.
+
+```{r pipeline_2}
+# Add Indicators
+add_indicators <- function(df) mutate(df, across(everything(), is.na, .names = "na_{.col}"))
+
+train_p2_raw <- add_indicators(housing_train_clean)
+test_p2_raw  <- add_indicators(housing_test_clean)
+
+# 2. Impute
+train_p2_imputed <- impute_data(train_p2_raw, train_p2_raw)
+test_p2_imputed  <- impute_data(test_p2_raw, train_p2_raw)
+
+# This identifies columns where all values are the same (e.g., all FALSE)
+nzv_cols <- nearZeroVar(train_p2_imputed)
+
+if(length(nzv_cols) > 0) {
+  train_p2 <- train_p2_imputed[, -nzv_cols]
+  test_p2  <- test_p2_imputed[, -nzv_cols]
+} else {
+  train_p2 <- train_p2_imputed
+  test_p2  <- test_p2_imputed
+}
+
+# Train
+fit_p2_ols   <- train(price ~ ., data = train_p2, method = "lm", trControl = cv_control)
+fit_p2_ridge <- train(price ~ ., data = train_p2, method = "glmnet", 
+                      tuneGrid = expand.grid(alpha = 0, lambda = seq(0.1, 10, length=5)),
+                      trControl = cv_control)
+
+# Evaluate
+performance_metrics_storage[[5]] <- extract_performance(fit_p2_ols, "P2_Indicators", "OLS")
+performance_metrics_storage[[6]] <- extract_performance(fit_p2_ridge, "P2_Indicators", "Ridge")
+test_metrics_storage[[5]] <- get_test_perf(fit_p2_ols, test_p2, "P2_Indicators", "OLS")
+test_metrics_storage[[6]] <- get_test_perf(fit_p2_ridge, test_p2, "P2_Indicators", "Ridge")
+```
+
+### Pipeline 3: Normalization
+
+```{r pipeline_3}
+# Identify numeric columns (excluding price)
+num_cols <- names(train_p2)[sapply(train_p2, is.numeric) & names(train_p2) != "price"]
+
+# Calculate scaling parameters from train
+train_means <- colMeans(train_p2[, num_cols])
+train_sds   <- apply(train_p2[, num_cols], 2, sd)
+
+# Scale both
+train_p3 <- train_p2
+test_p3  <- test_p2
+train_p3[num_cols] <- scale(train_p2[num_cols], center = train_means, scale = train_sds)
+test_p3[num_cols]  <- scale(test_p2[num_cols], center = train_means, scale = train_sds)
+
+# Train
+fit_p3_ridge <- train(price ~ ., data = train_p3, method = "glmnet", 
+                      tuneGrid = expand.grid(alpha = 0, lambda = seq(0.1, 10, length=5)),
+                      trControl = cv_control)
+fit_p3_lasso <- train(price ~ ., data = train_p3, method = "glmnet", 
+                      tuneGrid = expand.grid(alpha = 1, lambda = seq(0.1, 10, length=5)),
+                      trControl = cv_control)
+
+# Evaluate
+performance_metrics_storage[[7]] <- extract_performance(fit_p3_ridge, "P3_Normalized", "Ridge")
+performance_metrics_storage[[8]] <- extract_performance(fit_p3_lasso, "P3_Normalized", "Lasso")
+test_metrics_storage[[7]] <- get_test_perf(fit_p3_ridge, test_p3, "P3_Normalized", "Ridge")
+test_metrics_storage[[8]] <- get_test_perf(fit_p3_lasso, test_p3, "P3_Normalized", "Lasso")
+```
+
+### Pipeline 4: Full Preprocessing
+Imputation, indicators, scaling, outlier capping, and log transformations for skewed variables are all included.
+
+```{r pipeline_4}
+# Log Transforms
+train_p4 <- train_p2 %>% mutate(price = log(price), crime_rate = log(crime_rate + 1))
+test_p4  <- test_p2  %>% mutate(crime_rate = log(crime_rate + 1)) # Price stays original for get_test_perf
+
+# Capping (Winsorization) using Training Quantiles
+for(nm in num_cols) {
+  qnts <- quantile(train_p4[[nm]], probs = c(.05, .95), na.rm = TRUE)
+  train_p4[[nm]] <- pmin(pmax(train_p4[[nm]], qnts[1]), qnts[2])
+  test_p4[[nm]]  <- pmin(pmax(test_p4[[nm]], qnts[1]), qnts[2])
+}
+
+# Re-scale based on the new P4 training distributions
+train_p4_means <- colMeans(train_p4[, num_cols])
+train_p4_sds   <- apply(train_p4[, num_cols], 2, sd)
+
+train_p4[num_cols] <- scale(train_p4[num_cols], center = train_p4_means, scale = train_p4_sds)
+test_p4[num_cols]  <- scale(test_p4[num_cols], center = train_p4_means, scale = train_p4_sds)
+
+# Train
+fit_p4_ridge <- train(price ~ ., data = train_p4, method = "glmnet",
+                      tuneGrid = expand.grid(alpha = 0, lambda = seq(0.001, 0.1, length=5)),
+                      trControl = cv_control_log)
+fit_p4_lasso <- train(price ~ ., data = train_p4, method = "glmnet",
+                      tuneGrid = expand.grid(alpha = 1, lambda = seq(0.001, 0.1, length=5)),
+                      trControl = cv_control_log)
+
+# Evaluate
+performance_metrics_storage[[9]] <- extract_performance(fit_p4_ridge, "P4_Full_Processing", "Ridge")
+performance_metrics_storage[[10]] <- extract_performance(fit_p4_lasso, "P4_Full_Processing", "Lasso")
+
+test_metrics_storage[[9]] <- get_test_perf(fit_p4_ridge, test_p4, "P4_Full_Processing", "Ridge", is_log = TRUE)
+test_metrics_storage[[10]] <- get_test_perf(fit_p4_lasso, test_p4, "P4_Full_Processing", "Lasso", is_log = TRUE)
+
+```
+
+### 2.1 Summary Comparison Table
+
+```{r comparison_table}
+final_results <- bind_rows(performance_metrics_storage)
+knitr::kable(final_results %>% dplyr::select(-RMSE_Num), caption = "Final Model Comparison")
+```
+
+```{r comparison_table_test}
+test_results_final <- bind_rows(test_metrics_storage)
+knitr::kable(test_results_final, caption = "Model Performance on Unseen Test Data")
+```
+
+### 2.2 Performance Plot
+
+```{r performance_plot, fig.width=9, fig.height=6}
+ggplot(final_results, aes(x = reorder(Pipeline, RMSE_Num), y = RMSE_Num, fill = Model)) +
+  geom_bar(stat = "identity", position="dodge") +
+  coord_flip() + theme_minimal() + labs(title = "RMSE by Pipeline", y = "RMSE (Original Scale)")
+```
+
+
+
+---
+
+## Part 3 - Interpretation
+
+* **Which pipeline performed best under RMSE and MAE?**
+
+Pipeline 0 (Baseline - OLS) performed the best, achieving the lowest Mean RMSE of 45814.87 and the lowest mean absolute error of 31707.57 for the training set. It was still the best for the test set as well with lowest Mean RMSE of 63202.49 and the lowest mean absolute error of 36907.90.
+  
+* **Did complete-case analysis hurt performance? Why?**
+
+No, complete-case analysis (Pipeline 0, dropping NAs) significantly improved performance compared to all imputation methods. The RMSE jumped from ~46k in Pipeline 0 up to ~52k in Pipeline 1 (Imputation). 
+
+This is because the missing data in this dataset is **Missing Completely At Random (MCAR)**.And, we confirmed this statistically during our EDA using Little's MCAR test, which yielded a statistic of 16.50 and a p-value of 0.223. Since $p > 0.05$, we fail to reject the null hypothesis, formally confirming the MCAR assumption. 
+
+When data is perfectly MCAR, dropping rows simply leaves a smaller, but fully representative and unbiased sample. Conversely, Pipeline 1 used median/mode imputation, which artificially compressed the natural variance of the variables, distorted the distribution, and introduced noise that confused the model, which might have resulted in worse predictive performance.
+
+* **Did normalization improve Ridge/Lasso?**
+
+Yes, normalization slightly improved performance from the imputation and indicators for Lasso but overall performs worse than the baseline.Logically, normalization is meant to prevent features with large scales from dominating the penalty term. However, in real estate, features with large scales (like size_sqft) often possess the strongest signal. Normalizing them essentially muted their natural importance, causing the regularization penalty to constrain the model unnecessarily and degrade performance.
+
+* **Did missingness indicators help?**
+
+No, missingness indicators hurt performance because they added complexity without value. Moving from Pipeline 1 (Imputation only, OLS RMSE: ~52k) to Pipeline 2 (Imputation + Indicators, OLS RMSE: ~53k) increased the error. TSince the MCAR test proved missingness was random, these indicators carried no structural information about the price. Adding these uninformative features (noise) simply increased the variance of the model without a corresponding reduction in bias.
+
+* **How did outliers affect results?**
+
+Pipeline 4 with outlier treatment (Winsorization) yielded the worst performance overall (RMSE: ~56k). This indicates that the extreme values (outliers) in this dataset are actually informative extremes, highly informative data points such as massive luxury homes that genuinely command massive prices. By capping these values, the model was forced to under-predict the prices of expensive homes, severely inflating the error metrics.
+
+* **Did transforming price improve residual patterns?**
+
+While log-transforming the price in Pipeline 4 might have theoretically may have improved homoscedasticity, it completely degraded predictive accuracy on the original scale. The MAE jumped to ~37k. This might have happened because the true relationship between the predictors and the target is strictly addative than a logarithmic scale, and back-transforming from log-space to dollars caused small errors in the log-scale to become massive errors in the original price scale.
+
+---
+
+## Part 4 - Reflection
+
+**When does preprocessing matter most?**
+
+Preprocessing is necessary when using algorithms that make strict geometric or scale assumptions. It is mandatory for distance-based models (KNN) and regularized models (Ridge/Lasso) where unequal scales would lead to biased penalties. It is also critical if data is Missing Not At Random (MNAR), as preprocessing (indicators) is the only way to capture the hidden signal in the missingness.
+
+**When does it matter less?**
+
+It matters less when the data is already in a meaningful linear scale and you are using OLS, which is scale-invariant  as it adjusts coefficients to compensate for scale. It is also less critical for tree-based models (Random Forests/XGBoost), which are robust to outliers and do not require normalization or handle non-linearities intrinsically.
+
+**What mistakes would inflate performance estimates?**
+
+The biggest mistake is Data Leakage, keeping price_per_sqft would allow the model to cheat using the target's own formula, leading to a perfect but useless RMSE. And, calculating medians or scaling factors using the entire dataset before the split would allow information from the test set to influence the training, creating an over-optimistic but non-generalisable model.
