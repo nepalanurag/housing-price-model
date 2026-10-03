@@ -1,0 +1,11 @@
+pipeline,model,test_rmse,test_mae
+P0_Baseline,OLS,63202.49,36907.9
+P0_Baseline,Ridge,65040.12,38098.34
+P1_Imputed,OLS,63571.48,38038.64
+P1_Imputed,Ridge,65069.86,39078.81
+P2_Indicators,OLS,63571.48,38038.64
+P2_Indicators,Ridge,65069.86,39078.81
+P3_Normalized,Ridge,65069.86,39078.81
+P3_Normalized,Lasso,63466.54,37947.23
+P4_Full_Processing,Ridge,71259.84,43344.54
+P4_Full_Processing,Lasso,70895.78,43256.51
