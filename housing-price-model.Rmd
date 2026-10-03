@@ -1,5 +1,5 @@
 ---
-title: "Mini Project 2"
+title: "Housing Price Model"
 author: "Anurag Nepal"
 date: "`r Sys.Date()`"
 output:
@@ -52,7 +52,7 @@ print(mcar_result)
 ```
 
 
-Missing values are present in a few of the predictors (`size_sqft`,`age` and `prize_per_sqft`). If every row with a missing value is dropped, a massive chunk of the training data will be lost. So, these missing values are going to be imputed later.
+Missing values are present in a few of the predictors (`size_sqft`,`age` and `price_per_sqft`). If every row with a missing value is dropped, a massive chunk of the training data will be lost. So, these missing values are going to be imputed later.
 
 ### 1.2 Distributions, Skewness, and Outliers
 
@@ -362,7 +362,7 @@ Yes, normalization slightly improved performance from the imputation and indicat
 
 * **Did missingness indicators help?**
 
-No, missingness indicators hurt performance because they added complexity without value. Moving from Pipeline 1 (Imputation only, OLS RMSE: ~52k) to Pipeline 2 (Imputation + Indicators, OLS RMSE: ~53k) increased the error. TSince the MCAR test proved missingness was random, these indicators carried no structural information about the price. Adding these uninformative features (noise) simply increased the variance of the model without a corresponding reduction in bias.
+No, missingness indicators hurt performance because they added complexity without value. Moving from Pipeline 1 (Imputation only, OLS RMSE: ~52k) to Pipeline 2 (Imputation + Indicators, OLS RMSE: ~53k) increased the error. Since the MCAR test proved missingness was random, these indicators carried no structural information about the price. Adding these uninformative features (noise) simply increased the variance of the model without a corresponding reduction in bias.
 
 * **How did outliers affect results?**
 
