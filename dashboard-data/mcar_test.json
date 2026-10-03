@@ -1,0 +1,8 @@
+{
+ "test": "Little's MCAR test",
+ "statistic": 16.5,
+ "df": 13,
+ "p_value": 0.223,
+ "missing_patterns": 3,
+ "conclusion": "p > 0.05, fail to reject MCAR: missingness is completely at random"
+}
