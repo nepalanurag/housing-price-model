@@ -5,13 +5,17 @@ date: "`r Sys.Date()`"
 output:
   html_document:
     toc: true
-    theme: flatly
+    theme: null
+    css: blog.css
+    includes:
+      before_body: nav.html
+      after_body: footer.html
   word_document:
     toc: true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
 
 library(tidyverse)
 library(caret)
