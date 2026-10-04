@@ -854,9 +854,9 @@ worse.</li>
 incomplete rows beat all imputation. That makes sense given the MCAR
 test: with missingness completely at random, dropping rows leaves a
 smaller but unbiased sample, while median/mode imputation compresses
-variance and adds noise. CV RMSE rose from ~46k (P0) to ~52k (P1).</li>
+variance and adds noise. CV RMSE rose from ~46k (P0) to ~51k (P1).</li>
 <li><strong>Missingness indicators added nothing.</strong> Going from P1
-to P2 pushed OLS RMSE from ~52k to ~53k. The indicators carried no
+to P2 pushed OLS RMSE from ~51k to ~53k. The indicators carried no
 signal about price, which is exactly what MCAR predicts.</li>
 <li><strong>Normalization did not save the regularized models.</strong>
 It helped Lasso slightly relative to the imputation pipelines, but
@@ -864,13 +864,12 @@ everything stayed worse than the baseline. In housing, large-scale
 features like square footage carry the strongest signal, and
 standardizing mutes that natural importance while the penalty bites
 harder.</li>
-<li><strong>Winsorizing hurt the most.</strong> Pipeline 4 came in worst
-overall at ~56k RMSE. The extremes here are informative: genuine luxury
+<li><strong>Winsorizing hurt the most.</strong> Pipeline 4 came in worst overall at ~58k RMSE. The extremes here are informative: genuine luxury
 homes with genuinely high prices. Capping them forced systematic
 under-prediction at the top end.</li>
 <li><strong>The log transform backfired on the dollar scale.</strong>
 Back-transforming small log-scale errors into dollars blew them up,
-pushing MAE to ~37k. The price relationship in this data looks additive,
+pushing MAE to ~39k. The price relationship in this data looks additive,
 not multiplicative.</li>
 </ul>
 </div>
