@@ -885,6 +885,19 @@ imputations or scaling factors before the train/test split would leak
 test information into training. Both inflate performance estimates that
 do not survive contact with new data.</p>
 </div>
+<div id="followup" class="section level1">
+<h1>Back-transformation sensitivity</h1>
+<p>Pipeline 4 fits on log price and back-transforms with naive <code>exp()</code>, which is biased downward for the conditional mean. This follow-up re-scores the same log-model fits under three back-transformations (<code>analysis/smearing_sensitivity.R</code>, seeded 80/20 split):</p>
+<table>
+<tr><th>Model</th><th>Naive exp()</th><th>Duan smearing</th><th>Parametric exp(&sigma;&sup2;/2)</th></tr>
+<tr><td>Ridge (log)</td><td>59,362</td><td>59,881</td><td>&mdash;</td></tr>
+<tr><td>Lasso (log)</td><td>62,106</td><td>63,129</td><td>&mdash;</td></tr>
+</table>
+<p>Test RMSE in dollars. Smearing factors 1.0258 (Ridge) and 1.0255 (Lasso); the correction moves RMSE slightly the wrong way, and the pipeline ranking is unchanged. An honest null: the bias correction does not rescue the log pipeline, and the original comparison stands.</p>
+<div class="note" style="background:#eff6ff;border-left:4px solid #2563eb;padding:12px 16px;margin:1.2em 0;font-size:0.95rem;border-radius:0 8px 8px 0;">
+<strong>Data provenance.</strong> No source is cited for the housing data, and the values look generated (fractional square footage, sub-day ages), so this analysis is treated as synthetic. Absolute error levels should not be quoted as real-world figures.
+</div>
+</div>
 
 <footer class="footer">Anurag Nepal · <a href="https://anurag-nepal-portfolio.vercel.app/">Portfolio</a> · <a href="https://github.com/nepalanurag/housing-price-model">GitHub repo</a></footer>
 </div>
