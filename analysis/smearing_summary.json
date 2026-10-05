@@ -1,0 +1,107 @@
+{
+  "note": "Same data and fits for all three P4 back-transforms; only the back-transform varies.",
+  "smearing_factor_ridge": 1.025776,
+  "smearing_factor_lasso": 1.025505,
+  "implied_mean_bias_naive_ridge": 0.974872,
+  "implied_mean_bias_naive_lasso": 0.97513,
+  "ranked_test_rmse": [
+    {
+      "Pipeline": "P1_Imputed",
+      "Model": "Ridge",
+      "Backtransform": "none",
+      "Test_RMSE": 51540.65,
+      "Test_MAE": 32958.14
+    },
+    {
+      "Pipeline": "P2_Indicators",
+      "Model": "Ridge",
+      "Backtransform": "none",
+      "Test_RMSE": 51540.65,
+      "Test_MAE": 32958.14
+    },
+    {
+      "Pipeline": "P3_Normalized",
+      "Model": "Ridge",
+      "Backtransform": "none",
+      "Test_RMSE": 51540.65,
+      "Test_MAE": 32958.14
+    },
+    {
+      "Pipeline": "P0_Baseline",
+      "Model": "Ridge",
+      "Backtransform": "none",
+      "Test_RMSE": 51631.56,
+      "Test_MAE": 33106.17
+    },
+    {
+      "Pipeline": "P3_Normalized",
+      "Model": "Lasso",
+      "Backtransform": "none",
+      "Test_RMSE": 52234.9,
+      "Test_MAE": 32713.05
+    },
+    {
+      "Pipeline": "P1_Imputed",
+      "Model": "OLS",
+      "Backtransform": "none",
+      "Test_RMSE": 52310.27,
+      "Test_MAE": 32753.21
+    },
+    {
+      "Pipeline": "P2_Indicators",
+      "Model": "OLS",
+      "Backtransform": "none",
+      "Test_RMSE": 52310.27,
+      "Test_MAE": 32753.21
+    },
+    {
+      "Pipeline": "P0_Baseline",
+      "Model": "OLS",
+      "Backtransform": "none",
+      "Test_RMSE": 52690.41,
+      "Test_MAE": 33050.9
+    },
+    {
+      "Pipeline": "P4_Full_Processing",
+      "Model": "Ridge",
+      "Backtransform": "naive exp()",
+      "Test_RMSE": 59361.59,
+      "Test_MAE": 38626.79
+    },
+    {
+      "Pipeline": "P4_Full_Processing",
+      "Model": "Ridge",
+      "Backtransform": "Duan smearing",
+      "Test_RMSE": 59881.19,
+      "Test_MAE": 39089.5
+    },
+    {
+      "Pipeline": "P4_Full_Processing",
+      "Model": "Ridge",
+      "Backtransform": "exp(sigma2/2)",
+      "Test_RMSE": 60077.77,
+      "Test_MAE": 39214.55
+    },
+    {
+      "Pipeline": "P4_Full_Processing",
+      "Model": "Lasso",
+      "Backtransform": "naive exp()",
+      "Test_RMSE": 62105.8,
+      "Test_MAE": 40681.07
+    },
+    {
+      "Pipeline": "P4_Full_Processing",
+      "Model": "Lasso",
+      "Backtransform": "Duan smearing",
+      "Test_RMSE": 63129.02,
+      "Test_MAE": 41063.35
+    },
+    {
+      "Pipeline": "P4_Full_Processing",
+      "Model": "Lasso",
+      "Backtransform": "exp(sigma2/2)",
+      "Test_RMSE": 63403.49,
+      "Test_MAE": 41211.16
+    }
+  ]
+}

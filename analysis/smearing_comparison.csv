@@ -1,0 +1,15 @@
+"Pipeline","Model","Backtransform","Test_RMSE","Test_MAE"
+"P1_Imputed","Ridge","none",51540.65,32958.14
+"P2_Indicators","Ridge","none",51540.65,32958.14
+"P3_Normalized","Ridge","none",51540.65,32958.14
+"P0_Baseline","Ridge","none",51631.56,33106.17
+"P3_Normalized","Lasso","none",52234.9,32713.05
+"P1_Imputed","OLS","none",52310.27,32753.21
+"P2_Indicators","OLS","none",52310.27,32753.21
+"P0_Baseline","OLS","none",52690.41,33050.9
+"P4_Full_Processing","Ridge","naive exp()",59361.59,38626.79
+"P4_Full_Processing","Ridge","Duan smearing",59881.19,39089.5
+"P4_Full_Processing","Ridge","exp(sigma2/2)",60077.77,39214.55
+"P4_Full_Processing","Lasso","naive exp()",62105.8,40681.07
+"P4_Full_Processing","Lasso","Duan smearing",63129.02,41063.35
+"P4_Full_Processing","Lasso","exp(sigma2/2)",63403.49,41211.16
