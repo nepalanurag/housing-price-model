@@ -36,6 +36,10 @@ I wanted to know which preprocessing choices actually help when modeling house p
 
 The data is `housing_data.csv`, in this repo. Each row is a house with size in square feet, bedroom count, age, distance to the city, crime rate, and renovation status, plus the sale price. I split 80/20 into train and test right at the start, before any exploration, so nothing from the test set could leak into the EDA or the preprocessing.
 
+## Data provenance
+
+This dataset came to me without documentation of where the records were collected, and I have not been able to trace a source. Several values look generated rather than measured: fractional square footage (1703.96 sqft), house ages with sub-day precision, and prices to the cent with no heaping. I treat it as a synthetic dataset and read the results accordingly. The bake-off still compares preprocessing choices fairly on this data, but the absolute error levels should not be quoted as real-world performance. If I trace the source later, I will cite it here.
+
 ```{r load_data}
 raw_housing_df <- read.csv("housing_data.csv")
 
@@ -356,6 +360,17 @@ The headline results:
 * **Normalization did not save the regularized models.** It helped Lasso slightly relative to the imputation pipelines, but everything stayed worse than the baseline. In housing, large-scale features like square footage carry the strongest signal, and standardizing mutes that natural importance while the penalty bites harder.
 * **Winsorizing hurt the most.** Pipeline 4 came in worst overall at ~58k RMSE. The extremes here are informative: genuine luxury homes with genuinely high prices. Capping them forced systematic under-prediction at the top end.
 * **The log transform backfired on the dollar scale.** Back-transforming small log-scale errors into dollars blew them up, pushing MAE to ~39k. The price relationship in this data looks additive, not multiplicative.
+
+### Pipeline 4b: smearing-corrected log back-transform (back-transformation sensitivity analysis)
+
+The Pipeline 4 models are fit on `log(price)` and scored back on the dollar scale with a plain `exp()`. By Jensen's inequality that back-transform estimates `exp(E[log Y | x])` rather than `E[Y | x]`, so it systematically under-predicts and can inflate the log-pipeline's dollar RMSE relative to the other pipelines. As a follow-up sensitivity check, `analysis/smearing_sensitivity.R` (run: `Rscript analysis/smearing_sensitivity.R` from the repo root) re-runs all five pipelines on a fresh seeded 80/20 split and evaluates the P4 log models under three back-transformations on the same fits: the naive `exp()`, Duan's smearing correction `exp(pred) * mean(exp(residuals))` (Duan, 1983), and the parametric lognormal correction `exp(pred) * exp(sigma^2/2)`. The original naive-exp comparison above is untouched; this is the same data and the same fits with only the back-transform varied.
+
+```{r smearing-table}
+smear_comp = read.csv("analysis/smearing_comparison.csv")
+knitr::kable(smear_comp, caption = "Test performance: all pipelines, with P4 under three back-transforms")
+```
+
+The smearing factors are small, 1.0258 for Ridge and 1.0255 for Lasso, and the correction moves the P4 test RMSE slightly the wrong way: Ridge goes from 59,362 (naive) to 59,881 (smearing), Lasso from 62,106 to 63,129. The parametric correction lands in the same place. So the sensitivity analysis confirms the original ranking rather than overturning it: the log transform's poor showing is not an artifact of the naive back-transform, and Pipeline 4 stays last either way. Note this re-run uses a fresh seeded split (the original analysis did not seed the split), so absolute numbers here differ slightly from the tables above; what matters is the within-run comparison, where data and fits are held fixed.
 
 # Takeaway
 
